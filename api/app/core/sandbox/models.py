@@ -1,4 +1,4 @@
-"""Kiểu dữ liệu trao đổi với sandbox python-vm."""
+"""Data types exchanged with the python-vm sandbox."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class SandboxFile:
-    """Một file văn bản sẽ được upload vào workspace của session sandbox."""
+    """A text file to upload into the sandbox session's workspace."""
 
     path: str
     content: str
@@ -15,7 +15,7 @@ class SandboxFile:
 
 @dataclass(frozen=True)
 class ExecutionResult:
-    """Kết quả chuẩn hoá của một lần thực thi code trong sandbox."""
+    """Normalised outcome of one code execution inside the sandbox."""
 
     status: str
     stdout: str

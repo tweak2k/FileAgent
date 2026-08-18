@@ -1,3 +1,5 @@
+"""Tests for the python-vm HTTP client and its status-code to exception mapping."""
+
 from __future__ import annotations
 
 import base64

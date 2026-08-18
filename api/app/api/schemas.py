@@ -1,4 +1,7 @@
-"""Pydantic schema cho request/response của API."""
+"""Pydantic schemas for API requests and responses.
+
+These define the HTTP contract the Streamlit UI codes against; see docs/api.md.
+"""
 
 from __future__ import annotations
 
@@ -8,6 +11,8 @@ from pydantic import BaseModel
 
 
 class DocumentOut(BaseModel):
+    """A document plus its parse state; char_count is 0 until parsing succeeds."""
+
     id: int
     filename: str
     mime_type: str
@@ -17,11 +22,15 @@ class DocumentOut(BaseModel):
 
 
 class ConversationCreate(BaseModel):
+    """Request body for starting a conversation about a document."""
+
     document_id: int
     title: str | None = None
 
 
 class ConversationOut(BaseModel):
+    """A conversation; sandbox_session_id is null until the first code run."""
+
     id: int
     document_id: int
     title: str
@@ -29,6 +38,8 @@ class ConversationOut(BaseModel):
 
 
 class AgentStepOut(BaseModel):
+    """One code-execution step, shown in the UI under the assistant reply."""
+
     step_index: int
     code: str
     stdout: str
@@ -38,6 +49,8 @@ class AgentStepOut(BaseModel):
 
 
 class MessageOut(BaseModel):
+    """A conversation turn; `steps` is empty for user messages."""
+
     id: int
     role: str
     content: str
@@ -46,4 +59,6 @@ class MessageOut(BaseModel):
 
 
 class MessageCreate(BaseModel):
+    """Request body for asking a question in a conversation."""
+
     content: str

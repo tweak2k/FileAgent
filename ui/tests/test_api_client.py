@@ -1,3 +1,5 @@
+"""Tests for the UI's HTTP client, driven by httpx.MockTransport (no real network)."""
+
 from __future__ import annotations
 
 import httpx
@@ -55,7 +57,7 @@ def test_loi_http_nem_api_error_kem_thong_diep():
     with pytest.raises(ApiError, match="Sandbox không dùng được") as exc_info:
         build_client(handler).send_message(1, "q")
 
-    # UI cần status_code để gợi ý kiểm tra python-vm riêng cho lỗi 503.
+    # The UI needs status_code so it can single out 503 and suggest checking python-vm.
     assert exc_info.value.status_code == 503
 
 

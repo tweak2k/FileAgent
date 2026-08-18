@@ -1,3 +1,5 @@
+"""Shared fakes for the three protocol boundaries, used across the test suite."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -8,7 +10,11 @@ from app.core.sandbox.models import ExecutionResult, SandboxFile
 
 @dataclass
 class FakeSandboxClient:
-    """Sandbox giả: đếm số lần tạo session và cho phép ép session chết."""
+    """Fake sandbox: counts session creations and can force a session to be "reaped".
+
+    Put a session id into `dead_sessions` and the next execute() on it raises
+    SandboxSessionNotFound, exactly as python-vm does after its reaper runs.
+    """
 
     created_sessions: list[list[SandboxFile]] = field(default_factory=list)
     closed_sessions: list[str] = field(default_factory=list)
@@ -37,7 +43,11 @@ class FakeSandboxClient:
 
 @dataclass
 class FakeLLMClient:
-    """LLM giả: trả lần lượt các response đã dựng sẵn."""
+    """Fake LLM: returns scripted responses in order and records every call.
+
+    `calls` holds the exact message list passed on each turn, which is how the
+    multi-turn tests assert on prompt contents and ordering.
+    """
 
     responses: list[str] = field(default_factory=list)
     calls: list[list[dict[str, str]]] = field(default_factory=list)

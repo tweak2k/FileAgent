@@ -1,3 +1,5 @@
+"""Tests for the document routes: upload, background parsing, and status readback."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -66,7 +68,7 @@ def test_upload_tra_ve_document_id_va_trang_thai_ready_sau_khi_parse(client, db_
     body = response.json()
     assert body["filename"] == "hsmt.pdf"
 
-    # TestClient chạy BackgroundTasks đồng bộ sau khi response trả về
+    # TestClient runs BackgroundTasks synchronously once the response is returned.
     doc = db_session.get(Document, body["id"])
     db_session.refresh(doc)
     assert doc.parse_status == "ready"
@@ -117,9 +119,9 @@ def test_list_documents_tra_ve_danh_sach(client):
 def test_loi_ghi_markdown_khien_document_chuyen_sang_failed_khong_ket_o_parsing(
     client, db_session, tmp_path
 ):
-    # artifacts_dir bị chiếm bởi một file thường (không phải thư mục) nên
-    # artifacts_dir.mkdir(parents=True, exist_ok=True) sẽ ném FileExistsError
-    # ngay sau khi parser đã chạy thành công — mô phỏng lỗi I/O khi ghi markdown.
+    # A plain file occupies artifacts_dir, so mkdir(parents=True, exist_ok=True)
+    # raises FileExistsError right after the parser has already succeeded —
+    # simulating an I/O failure while writing the markdown.
     (tmp_path / "artifacts").write_text("khong phai thu muc")
 
     response = client.post(

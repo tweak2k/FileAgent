@@ -1,3 +1,5 @@
+"""Tests for the conversation and chat routes, including failure handling mid-turn."""
+
 from __future__ import annotations
 
 import pytest
@@ -102,11 +104,14 @@ def test_lich_su_message_duoc_luu_dung_thu_tu(client, document):
 
 
 def test_cau_hoi_van_duoc_luu_khi_agent_loi(client, document):
-    """Câu hỏi không mất khi agent lỗi, và cũng không bị mồ côi: một assistant
-    message báo lỗi phải được ghi kèm, nếu không lượt sau build_history() sẽ
-    luôn thấy hai user liên tiếp trong prompt (không có API xoá message)."""
+    """The question survives an agent failure without being left orphaned.
+
+    An assistant message recording the failure must be written alongside it,
+    otherwise build_history() would see two user messages in a row on every
+    later turn — and there is no API for deleting a message.
+    """
     conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
-    client.fake_llm.responses = []  # FakeLLMClient sẽ ném AssertionError
+    client.fake_llm.responses = []  # FakeLLMClient raises AssertionError when exhausted
 
     with pytest.raises(AssertionError):
         client.post(f"/conversations/{conv_id}/messages", json={"content": "Hỏi lỗi"})
@@ -139,19 +144,18 @@ def test_xoa_conversation_dong_session(client, document):
 
 
 def test_session_sandbox_khong_bi_mo_coi_khi_llm_loi_giua_luot(client, document, db_session):
-    """Session vừa tạo phải được commit ngay, kể cả khi bước sau đó của agent lỗi.
+    """A freshly created session must be committed even if a later step fails.
 
-    SessionResolver._create chỉ flush(), không commit(). Nếu LLM ném lỗi ở
-    bước 2 (sau khi session đã được tạo ở bước 1) và ChatService không tự
-    commit trước khi để exception bay lên, get_db() sẽ rollback toàn bộ khi
-    request kết thúc: Postgres quên mất session vừa tạo trong khi session
-    thật vẫn còn sống trên python-vm — mồ côi, tốn slot cho tới khi reaper
-    dọn.
+    SessionResolver._create only flushes, it never commits. If the LLM raises
+    on step 2 (after step 1 created the session) and ChatService does not
+    commit before letting the exception escape, get_db() rolls everything back
+    when the request ends: Postgres forgets the session while the real one is
+    still alive on python-vm — orphaned, holding a slot until the reaper runs.
     """
     conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
 
     class FlakyLLM:
-        """LLM giả: bước 1 trả code (khiến sandbox session được tạo), bước 2 ném LLMError."""
+        """Fake LLM: step 1 returns code (creating the session), step 2 raises LLMError."""
 
         def __init__(self) -> None:
             self._step = 0
@@ -175,19 +179,19 @@ def test_session_sandbox_khong_bi_mo_coi_khi_llm_loi_giua_luot(client, document,
 def test_agent_step_khong_mat_va_khong_con_user_mo_coi_khi_llm_loi_giua_luot(
     client, document, db_session
 ):
-    """Hai bước code đã chạy thành công không được biến mất khi bước 3 LLM lỗi.
+    """Two successful code steps must not vanish when step 3 fails in the LLM.
 
-    Nếu ChatService không bắt exception của agent.run và ghi lại các AgentStep
-    đã thu được cộng một assistant message báo lỗi, thì (a) hai bước code đã
-    thực thi trong sandbox sẽ không có bản ghi nào trong DB, và (b)
-    conversation sẽ còn lại một message user không có assistant đi kèm —
-    lượt kế tiếp build_history() trả về hai user liên tiếp trong prompt, mãi
-    mãi (không có API xoá message).
+    Without ChatService catching agent.run's exception and persisting both the
+    collected AgentSteps and an assistant message noting the failure, (a) the
+    two steps that really ran in the sandbox would have no DB record, and (b)
+    the conversation would keep a user message with no assistant reply — so
+    build_history() would return two user messages in a row on every later
+    turn, permanently, since no API deletes a message.
     """
     conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
 
     class FlakyLLM:
-        """LLM giả: 2 bước đầu trả code chạy được, bước 3 ném LLMError."""
+        """Fake LLM: the first two steps return runnable code, the third raises LLMError."""
 
         def __init__(self) -> None:
             self._step = 0
@@ -215,7 +219,7 @@ def test_agent_step_khong_mat_va_khong_con_user_mo_coi_khi_llm_loi_giua_luot(
     assert len(steps) == 2
     assert [s.step_index for s in steps] == [0, 1]
 
-    # Lượt kế tiếp: build_history() không được trả về hai user liên tiếp.
+    # Next turn: build_history() must not return two user messages in a row.
     client.app.dependency_overrides[get_llm_client] = lambda: client.fake_llm
     client.fake_llm.responses = ["Trả lời lượt hai."]
     response2 = client.post(

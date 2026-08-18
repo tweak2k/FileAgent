@@ -1,4 +1,4 @@
-"""Endpoint kiểm tra tình trạng hoạt động của service."""
+"""Liveness endpoint used by compose healthchecks and by the UI on startup."""
 
 from __future__ import annotations
 
@@ -9,5 +9,5 @@ router = APIRouter(tags=["health"])
 
 @router.get("/health")
 def health() -> dict[str, str]:
-    """Trả về trạng thái service, dùng cho health check."""
+    """Report that the service is up. Does not touch the database."""
     return {"status": "ok", "service": "file-understanding-api"}

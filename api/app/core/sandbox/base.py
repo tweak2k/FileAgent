@@ -1,4 +1,4 @@
-"""Protocol mô tả hợp đồng của một sandbox client."""
+"""Protocol describing the contract of a sandbox client."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from app.core.sandbox.models import ExecutionResult, SandboxFile
 
 
 class SandboxClient(Protocol):
-    """Hợp đồng client để tạo session, chạy code, và đóng session sandbox."""
+    """Contract for creating sessions, running code, and closing sandbox sessions."""
 
     def create_session(self, files: list[SandboxFile]) -> str: ...
 

@@ -1,13 +1,16 @@
-"""Vòng lặp CodeActAgent: reason -> code -> exec -> observe.
+"""CodeAct agent loop: reason -> code -> exec -> observe.
 
-Ý tưởng: tài liệu có thể rất dài nên không nhét toàn bộ vào context của LLM.
-Thay vào đó, agent tự viết code Python để đọc/tìm/cắt phần mình cần trong
-`document.md` nằm sẵn ở sandbox. Mỗi lượt LLM trả về một block ```python thì
-code đó được chạy qua `executor`, rồi stdout/stderr được đưa lại làm quan sát
-cho lượt kế tiếp. Khi LLM trả lời không kèm code, đó là câu trả lời cuối.
+The idea: a document can be very long, so we never push its full text into
+the LLM context. Instead the agent writes Python code to read, search and
+slice the parts it needs from `document.md`, which already sits in the
+sandbox workspace. Whenever the LLM replies with a ```python block, that
+code runs through `executor` and its stdout/stderr comes back as the
+observation for the next turn. A reply without a code block is the final
+answer.
 
-`CodeActAgent` chỉ biết `executor` là một callable — không biết gì về sandbox
-hay database, nên test được bằng hàm Python thường.
+`CodeActAgent` only knows `executor` as a callable — it knows nothing about
+the sandbox or the database, which makes it testable with a plain Python
+function.
 """
 
 from __future__ import annotations
@@ -24,13 +27,13 @@ from app.core.agent.prompts import (
 from app.core.llm.base import LLMClient
 from app.core.sandbox.models import ExecutionResult
 
-# Lấy block ```python, ```py hoặc ``` trần đầu tiên trong text.
+# Matches the first ```python, ```py or bare ``` block in a piece of text.
 CODE_BLOCK_PATTERN = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.DOTALL)
 
 
 @dataclass(frozen=True)
 class AgentStepRecord:
-    """Ghi lại một bước reason-code-exec-observe đã thực hiện."""
+    """One completed reason-code-exec-observe step."""
 
     step_index: int
     code: str
@@ -42,7 +45,7 @@ class AgentStepRecord:
 
 @dataclass
 class AgentRunResult:
-    """Kết quả cuối cùng của một lượt chạy agent."""
+    """Final outcome of a single agent run."""
 
     answer: str
     steps: list[AgentStepRecord] = field(default_factory=list)
@@ -50,9 +53,9 @@ class AgentRunResult:
 
 
 def extract_code(text: str) -> str | None:
-    """Lấy block ```python (hoặc ```py, hoặc ``` trần) đầu tiên trong text.
+    """Return the first ```python (or ```py, or bare ```) block in the text.
 
-    Trả về None nếu không có block nào, hoặc block đó rỗng.
+    Returns None when there is no block at all, or when the block is empty.
     """
     match = CODE_BLOCK_PATTERN.search(text)
     if match is None:
@@ -62,7 +65,7 @@ def extract_code(text: str) -> str | None:
 
 
 class CodeActAgent:
-    """Điều phối vòng lặp reason -> code -> exec -> observe với một LLM và một executor."""
+    """Drives the reason -> code -> exec -> observe loop over an LLM and an executor."""
 
     def __init__(self, llm: LLMClient, max_steps: int) -> None:
         self._llm = llm
@@ -76,15 +79,16 @@ class CodeActAgent:
         executor: Callable[[str], ExecutionResult],
         steps_sink: list[AgentStepRecord] | None = None,
     ) -> AgentRunResult:
-        """Chạy vòng lặp cho tới khi LLM trả lời không kèm code, hoặc chạm max_steps.
+        """Loop until the LLM answers without code, or until max_steps is reached.
 
-        Thứ tự message: system prompt -> document context -> lịch sử hội thoại
-        -> câu hỏi hiện tại (luôn là message cuối cùng khi gọi LLM lần đầu).
+        Message order: system prompt -> document context -> conversation
+        history -> current question (always the last message on the first LLM
+        call).
 
-        `steps_sink`, nếu truyền vào, là list do caller sở hữu và sẽ được nối
-        thêm ngay khi mỗi bước hoàn tất — không đợi `run()` trả về. Nhờ vậy,
-        nếu LLM hoặc executor ném lỗi giữa vòng lặp, caller vẫn đọc được các
-        bước đã thực sự chạy xong trước đó (xem ChatService.answer).
+        `steps_sink`, when provided, is a caller-owned list appended to as soon
+        as each step completes — not when `run()` returns. That way, if the LLM
+        or the executor raises mid-loop, the caller can still read the steps
+        that actually ran (see ChatService.answer).
         """
         messages: list[dict[str, str]] = [
             {"role": "system", "content": build_system_prompt()},
@@ -129,7 +133,7 @@ class CodeActAgent:
         )
 
     def _summarise_on_limit(self, last_text: str) -> str:
-        """Dựng câu trả lời khi chạm max_steps: bỏ block code còn sót, thêm ghi chú chưa hoàn tất."""
+        """Build the answer when max_steps is hit: drop leftover code blocks, append the notice."""
         stripped = CODE_BLOCK_PATTERN.sub("", last_text).strip()
         base = stripped or "Chưa tìm ra câu trả lời trong giới hạn số bước cho phép."
         return base + STEP_LIMIT_NOTICE

@@ -1,4 +1,9 @@
-"""Chuỗi prompt và hàm dựng prompt cho CodeActAgent."""
+"""Prompt strings and prompt builders for the CodeAct agent.
+
+The prompt text itself stays in Vietnamese on purpose: it is runtime data
+sent to the LLM, and the agent answers Vietnamese-speaking users. Only the
+comments and docstrings around it are English.
+"""
 
 from __future__ import annotations
 
@@ -22,21 +27,22 @@ STEP_LIMIT_NOTICE = (
     "Câu trả lời trên dựa vào những gì thu thập được cho tới lúc dừng.)"
 )
 
-# Nếu agent lỡ in cả tài liệu (vd. print(open('document.md').read())), stdout
-# có thể dài hàng trăm nghìn ký tự. Không cắt thì toàn bộ nội dung đó vào
-# thẳng prompt lượt sau, provider dễ trả 400 (vượt giới hạn), rồi retry 3 lần
-# ra 502 mà không có đường phục hồi (agent không tự sửa được vì lỗi nằm ở
-# tầng provider, không phải ở stderr code Python).
+# If the agent accidentally prints the whole document (e.g.
+# print(open('document.md').read())), stdout can run to hundreds of thousands
+# of characters. Without truncation all of it lands in the next prompt, the
+# provider is likely to answer 400 (context limit), and the three retries then
+# surface as a 502 with no way to recover — the agent cannot fix this itself
+# because the failure is at the provider layer, not in the Python stderr.
 OBSERVATION_MAX_CHARS = 6000
 
 
 def build_system_prompt() -> str:
-    """Trả về system prompt cố định cho CodeActAgent."""
+    """Return the fixed system prompt for the CodeAct agent."""
     return SYSTEM_PROMPT
 
 
 def build_document_context(filename: str, char_count: int, head: str) -> str:
-    """Dựng message giới thiệu tài liệu đang xét, kèm phần đầu để agent có điểm khởi đầu."""
+    """Describe the document under discussion, including its head as a starting point."""
     return (
         f"Tài liệu đang xét: `{filename}`, đã chuyển sang markdown, dài {char_count} ký tự, "
         f"đọc được tại `document.md`.\n\n"
@@ -45,14 +51,14 @@ def build_document_context(filename: str, char_count: int, head: str) -> str:
 
 
 def _truncate(text: str, limit: int = OBSERVATION_MAX_CHARS) -> str:
-    """Cắt text nếu vượt quá `limit` ký tự, kèm hậu tố nói rõ đã bị cắt."""
+    """Cut text down to `limit` characters, appending a note that it was truncated."""
     if len(text) <= limit:
         return text
     return f"{text[:limit]}\n... (đã cắt bớt, còn {limit}/{len(text)} ký tự)"
 
 
 def build_observation(stdout: str, stderr: str, timed_out: bool) -> str:
-    """Dựng nội dung quan sát (observation) từ kết quả chạy code để đưa vào lượt kế tiếp."""
+    """Build the observation message fed back to the LLM after a code run."""
     parts = [f"Kết quả chạy code:\n\nstdout:\n{_truncate(stdout) if stdout else '(rỗng)'}"]
     if stderr:
         parts.append(f"stderr:\n{_truncate(stderr)}")

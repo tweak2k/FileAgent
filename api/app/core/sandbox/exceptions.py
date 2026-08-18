@@ -1,19 +1,19 @@
-"""Các exception dùng khi giao tiếp với sandbox python-vm."""
+"""Exceptions raised while talking to the python-vm sandbox."""
 
 from __future__ import annotations
 
 
 class SandboxError(Exception):
-    """Lỗi hạ tầng khi làm việc với sandbox."""
+    """Infrastructure failure while working with the sandbox."""
 
 
 class SandboxSessionNotFound(SandboxError):
-    """Session không còn tồn tại (đã bị reap)."""
+    """The session no longer exists — python-vm's reaper has collected it."""
 
 
 class SandboxCapacityError(SandboxError):
-    """Sandbox hết slot session."""
+    """The sandbox has run out of session slots."""
 
 
 class SandboxUnavailable(SandboxError):
-    """Không kết nối được tới sandbox."""
+    """The sandbox could not be reached at all."""

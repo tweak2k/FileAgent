@@ -1,4 +1,4 @@
-"""Giao diện chung cho các parser chuyển file sang markdown."""
+"""Shared interface for parsers that turn a file into markdown."""
 
 from __future__ import annotations
 
@@ -9,13 +9,13 @@ from typing import Protocol
 
 @dataclass(frozen=True)
 class ParseResult:
-    """Kết quả chuyển một file sang markdown."""
+    """Outcome of converting one file to markdown."""
 
     markdown: str
     parser_name: str
 
 
 class Parser(Protocol):
-    """Hợp đồng mà mọi parser (LlamaParse hoặc parser khác sau này) phải tuân theo."""
+    """Contract every parser must satisfy — LlamaParse today, anything else later."""
 
     def to_markdown(self, file_path: Path, mime_type: str | None = None) -> ParseResult: ...

@@ -1,3 +1,5 @@
+"""Smoke tests requiring the compose stack and python-vm to be running."""
+
 from __future__ import annotations
 
 import os

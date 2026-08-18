@@ -1,6 +1,8 @@
-"""Giao diện Streamlit — demo hỏi đáp tài liệu.
+"""Streamlit UI — the document Q&A demo.
 
-Chỉ gọi HTTP qua `ui.api_client.ApiClient`, không import gì từ `api/app`.
+Talks HTTP through `ui.api_client.ApiClient` only, importing nothing from
+`api/app`. All on-screen text is Vietnamese because that is the audience;
+comments and docstrings are English.
 """
 
 from __future__ import annotations
@@ -18,17 +20,18 @@ POLL_INTERVAL_SECONDS = 3
 
 @st.cache_resource
 def get_client() -> ApiClient:
+    """Return the process-wide API client, cached across Streamlit reruns."""
     return ApiClient(base_url=API_BASE_URL)
 
 
 def render_sidebar(client: ApiClient) -> int | None:
-    """Vẽ sidebar (upload, chọn tài liệu, chọn/tạo hội thoại).
+    """Render the sidebar: upload, document picker, conversation picker.
 
-    Bọc toàn bộ thân trong try/except ApiError: mọi lời gọi API ở đây (trừ
-    send_message ở main) trước kia không được bọc, nên nếu backend trả lỗi
-    (vd. 503 khi python-vm chết) thì ApiError ném ra sẽ khiến Streamlit vẽ
-    traceback thay vì trang. Trả None khi có lỗi để main() hiện màn hình
-    "chưa sẵn sàng" thay vì crash.
+    The whole body is wrapped in try/except ApiError. Every call in here would
+    otherwise be unguarded, so a backend error (say a 503 when python-vm is
+    down) would make Streamlit render a traceback instead of the page.
+    Returning None on failure lets main() show the "not ready" screen instead
+    of crashing.
     """
     st.sidebar.title("Tài liệu")
 
@@ -45,6 +48,7 @@ def render_sidebar(client: ApiClient) -> int | None:
 
 
 def _render_sidebar_body(client: ApiClient) -> int | None:
+    """Sidebar body; may raise ApiError, which render_sidebar turns into a message."""
     uploaded = st.sidebar.file_uploader("Tải tài liệu lên", type=None)
     if uploaded is not None and st.sidebar.button("Bắt đầu bóc tách"):
         document = client.upload_document(
@@ -58,8 +62,8 @@ def _render_sidebar_body(client: ApiClient) -> int | None:
         try:
             document = client.get_document(pending_id)
         except ApiError:
-            # Lời gọi ném lỗi thì vẫn phải pop, nếu không mọi lần rerun sau
-            # đều chết ở đúng chỗ này — UI kẹt cứng vĩnh viễn.
+            # Pop even when the call failed: otherwise every later rerun dies
+            # on this same line and the UI is stuck for good.
             st.session_state.pop("pending_document_id", None)
             raise
 
@@ -71,10 +75,10 @@ def _render_sidebar_body(client: ApiClient) -> int | None:
             st.session_state.pop("pending_document_id", None)
             if document["parse_status"] == "failed":
                 st.sidebar.error(f"Bóc tách thất bại: {document['parse_error']}")
-            # Không st.rerun() ở đây — nếu rerun, script chạy lại từ đầu
-            # với pending_document_id đã bị pop, và lỗi vừa vẽ ở trên biến
-            # mất trước khi người dùng kịp thấy. Để script chạy tiếp xuống
-            # phần danh sách tài liệu bên dưới.
+            # No st.rerun() here: a rerun restarts the script with
+            # pending_document_id already popped, so the error just rendered
+            # above disappears before anyone can read it. Let the script fall
+            # through to the document list below instead.
 
     documents = client.list_documents()
     if not documents:
@@ -118,7 +122,7 @@ def _render_sidebar_body(client: ApiClient) -> int | None:
 
     conversation_ids = [c["id"] for c in conversations]
     conversation_labels = {c["id"]: f"#{c['id']} — {c['title']}" for c in conversations}
-    # Hội thoại vừa tạo (nếu có) được chọn sẵn thay vì luôn rơi về cái đầu tiên.
+    # Preselect the conversation just created rather than always the first one.
     just_created_id = st.session_state.get("conversation_id")
     default_index = (
         conversation_ids.index(just_created_id) if just_created_id in conversation_ids else 0
@@ -138,6 +142,7 @@ def _render_sidebar_body(client: ApiClient) -> int | None:
 
 
 def render_steps(steps: list[dict]) -> None:
+    """Render the agent's code steps under a reply, collapsed into an expander."""
     if not steps:
         return
     with st.expander(f"Các bước agent đã chạy ({len(steps)})"):
@@ -151,6 +156,7 @@ def render_steps(steps: list[dict]) -> None:
 
 
 def main() -> None:
+    """Entry point: health check, sidebar, conversation history, chat input."""
     st.set_page_config(page_title="Hỏi đáp tài liệu", layout="wide")
     client = get_client()
 

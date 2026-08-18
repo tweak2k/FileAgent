@@ -1,3 +1,10 @@
+"""Multi-turn tests — the project's top success criterion.
+
+These cover: reusing one sandbox session across turns, history arriving in the
+right order, previous turns' code never leaking into later prompts, and the
+session being recreated transparently after python-vm reaps it.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -76,10 +83,10 @@ def test_luot_hai_nhan_du_lich_su_luot_mot_dung_thu_tu(client_and_doc):
     assert contents.index("Gói thầu số mấy?") < contents.index("Gói thầu số 33.")
     assert contents.index("Gói thầu số 33.") < contents.index("Còn giá thì sao?")
     assert messages[-1]["content"] == "Còn giá thì sao?"
-    # list.index() chỉ tìm vị trí xuất hiện ĐẦU TIÊN — nếu build_history bị gọi
-    # SAU khi lưu message người dùng, câu hỏi hiện tại sẽ lặp lại hai lần
-    # trong prompt nhưng các assert index() ở trên vẫn xanh. Khoá thêm bằng
-    # count() để bắt đúng lỗi trùng lặp này.
+    # list.index() only finds the FIRST occurrence: if build_history were
+    # called AFTER storing the user message, the current question would appear
+    # twice in the prompt and every index() assert above would still pass.
+    # count() is what actually pins that duplication down.
     assert contents.count("Còn giá thì sao?") == 1
 
 

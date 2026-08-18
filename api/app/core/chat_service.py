@@ -1,4 +1,4 @@
-"""Ghép lịch sử hội thoại, sandbox session và CodeActAgent thành một lượt trả lời."""
+"""Ties conversation history, the sandbox session and the CodeAct agent into one turn."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ DOCUMENT_HEAD_LINES = 30
 
 
 class ChatService:
-    """Ghép lịch sử hội thoại, sandbox session và agent thành một lượt trả lời."""
+    """Ties conversation history, the sandbox session and the agent into one turn."""
 
     def __init__(self, db: Session, llm: LLMClient, sandbox: SandboxClient, max_steps: int) -> None:
         self._db = db
@@ -24,7 +24,7 @@ class ChatService:
         self._agent = CodeActAgent(llm=llm, max_steps=max_steps)
 
     def build_history(self, conversation: Conversation) -> list[dict[str, str]]:
-        """Lấy lịch sử hội thoại theo (created_at, id) tăng dần, chỉ role user/assistant."""
+        """Return the conversation ordered by (created_at, id), user/assistant roles only."""
         return [
             {"role": m.role, "content": m.content}
             for m in conversation.messages
@@ -32,13 +32,15 @@ class ChatService:
         ]
 
     def answer(self, conversation: Conversation, question: str) -> Message:
+        """Run one full turn: build the prompt, drive the agent, persist the outcome."""
         markdown = read_markdown(conversation.document)
 
-        # Lịch sử phải chụp TRƯỚC khi thêm câu hỏi mới, vì agent tự nối câu hỏi ở cuối.
+        # History must be captured BEFORE the new question is stored, because
+        # the agent appends the current question itself.
         history = self.build_history(conversation)
 
-        # Ghi và commit câu hỏi của người dùng ngay, trước khi gọi agent — để
-        # câu hỏi không mất nếu agent lỗi giữa chừng.
+        # Store and commit the user's question immediately, before calling the
+        # agent, so the question survives an agent failure mid-turn.
         user_message = Message(conversation_id=conversation.id, role="user", content=question)
         self._db.add(user_message)
         self._db.commit()
@@ -60,23 +62,23 @@ class ChatService:
                 steps_sink=steps,
             )
         except Exception as exc:
-            # Agent lỗi giữa lượt (LLM hết retry, sandbox mất kết nối ở một
-            # bước sau...): các bước code TRƯỚC đó đã thực sự chạy trong
-            # sandbox rồi, không được để mất — và câu hỏi người dùng (đã lưu
-            # ở trên) không được để mồ côi, vì không có API xoá message nên
-            # nó sẽ nằm mãi trong prompt của mọi lượt về sau nếu
-            # build_history() thấy hai user liên tiếp.
+            # The agent failed mid-turn (LLM out of retries, sandbox lost on a
+            # later step...). The earlier code steps really did run inside the
+            # sandbox, so they must not be lost — and the user question stored
+            # above must not be left orphaned: there is no delete-message API,
+            # so a dangling user message would sit in the prompt of every
+            # later turn once build_history() sees two user roles in a row.
             self._record_failed_turn(conversation, steps, exc)
             raise
         finally:
-            # Nếu sandbox session vừa được tạo (SessionResolver._create chỉ
-            # flush, không commit) rồi một bước SAU đó ném lỗi (LLM hết retry,
-            # sandbox mất kết nối ở lần execute kế tiếp...), sandbox_session_id
-            # (và assistant message lỗi ghi ở except phía trên, nếu có) phải
-            # được commit ở đây trước khi exception bay lên. Nếu không,
-            # get_db() sẽ rollback khi request kết thúc, Postgres quên mất
-            # session vừa tạo trong khi session thật vẫn còn sống trên
-            # python-vm — mồ côi cho tới khi reaper dọn, tốn một slot.
+            # If the sandbox session was just created (SessionResolver._create
+            # only flushes, never commits) and a LATER step raises (LLM out of
+            # retries, sandbox lost on the next execute...), sandbox_session_id
+            # — plus the failure message written in the except branch above,
+            # if any — has to be committed here before the exception escapes.
+            # Otherwise get_db() rolls back at the end of the request, Postgres
+            # forgets the session while the real one is still alive on
+            # python-vm: orphaned until the reaper collects it, wasting a slot.
             self._db.commit()
 
         assistant_message = Message(
@@ -92,11 +94,11 @@ class ChatService:
     def _record_failed_turn(
         self, conversation: Conversation, steps: list[AgentStepRecord], exc: Exception
     ) -> None:
-        """Ghi lại các bước agent đã chạy xong cộng một assistant message báo lỗi.
+        """Persist the steps that did run, plus an assistant message noting the failure.
 
-        Gọi khi agent.run() ném exception giữa lượt. Chỉ add/flush — việc
-        commit do khối `finally` ở answer() lo, chung với commit
-        sandbox_session_id.
+        Called when agent.run() raises mid-turn. Only adds and flushes — the
+        commit is handled by the `finally` block in answer(), together with the
+        sandbox_session_id commit.
         """
         error_message = Message(
             conversation_id=conversation.id,
@@ -108,6 +110,7 @@ class ChatService:
         self._persist_steps(error_message.id, steps)
 
     def _persist_steps(self, message_id: int, steps: list[AgentStepRecord]) -> None:
+        """Write one agent_steps row per executed step, attached to the given message."""
         for step in steps:
             self._db.add(
                 AgentStep(
@@ -122,5 +125,6 @@ class ChatService:
             )
 
     def reset_sandbox(self, conversation: Conversation) -> None:
+        """Close the conversation's sandbox session and forget its id."""
         self._resolver.reset(conversation)
         self._db.commit()

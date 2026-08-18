@@ -1,4 +1,4 @@
-"""Cấu hình ứng dụng, đọc từ biến môi trường / file .env."""
+"""Application configuration, read from environment variables and the .env file."""
 
 from __future__ import annotations
 
@@ -9,7 +9,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    """Tập hợp cấu hình cho toàn bộ ứng dụng, nạp từ env hoặc file .env."""
+    """Every setting the application needs, loaded from env vars or a .env file.
+
+    Precedence follows pydantic-settings: init arguments > environment
+    variables > .env file > the defaults below. Tests that assert on defaults
+    must pass `_env_file=None`, otherwise a developer's local .env wins.
+    """
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
@@ -22,6 +27,8 @@ class Settings(BaseSettings):
 
     llama_cloud_api_key: str = ""
 
+    # python-vm runs outside this compose project; from inside a container the
+    # host is reachable through host.docker.internal.
     sandbox_base_url: str = "http://host.docker.internal:8081"
     sandbox_api_key: str = "dev-secret"
     sandbox_timeout_seconds: int = 30
@@ -32,16 +39,16 @@ class Settings(BaseSettings):
 
     @property
     def uploads_dir(self) -> Path:
-        """Thư mục lưu file người dùng upload."""
+        """Directory holding the original files users uploaded."""
         return self.data_dir / "uploads"
 
     @property
     def artifacts_dir(self) -> Path:
-        """Thư mục lưu artifact do agent sinh ra."""
+        """Directory holding parser output (markdown) for each document."""
         return self.data_dir / "artifacts"
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Trả về instance Settings duy nhất (cache để không đọc env nhiều lần)."""
+    """Return the single Settings instance, cached so the env is read once."""
     return Settings()

@@ -1,3 +1,5 @@
+"""Tests for the ORM models and their relationships."""
+
 from __future__ import annotations
 
 from app.db.models import AgentStep, Conversation, Document, DocumentArtifact, Message

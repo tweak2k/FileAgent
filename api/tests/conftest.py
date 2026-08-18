@@ -1,3 +1,11 @@
+"""Pytest fixtures backed by a real Postgres database.
+
+Each test runs inside an outer transaction that is rolled back afterwards, so
+tests never see each other's rows. The session joins that transaction with
+`create_savepoint`, which is what lets code under test call commit() — the
+commit lands on a savepoint, not on the outer transaction.
+"""
+
 from __future__ import annotations
 
 import os

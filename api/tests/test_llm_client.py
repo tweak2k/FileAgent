@@ -1,3 +1,5 @@
+"""Tests for the OpenAI-compatible LLM adapter, including its retry behaviour."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

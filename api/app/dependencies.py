@@ -1,6 +1,11 @@
-"""Nơi duy nhất nối Settings vào các client thật: Parser, SandboxClient, LLMClient.
+"""The single place where Settings is wired into the real clients.
 
-Đây là các FastAPI dependency, ghi đè được trong test bằng `app.dependency_overrides`.
+Parser, SandboxClient and LLMClient are constructed here and nowhere else, so
+swapping a provider touches exactly one file. These are FastAPI dependencies,
+which tests replace through `app.dependency_overrides`.
+
+Each client is cached for the process lifetime: they hold an httpx connection
+pool that is meant to be reused across requests.
 """
 
 from __future__ import annotations
@@ -15,11 +20,13 @@ from app.core.sandbox.client import HttpSandboxClient
 
 @lru_cache(maxsize=1)
 def _parser() -> LlamaParseParser:
+    """Build the LlamaParse parser from settings, once per process."""
     return LlamaParseParser(api_key=get_settings().llama_cloud_api_key)
 
 
 @lru_cache(maxsize=1)
 def _sandbox_client() -> HttpSandboxClient:
+    """Build the python-vm HTTP client from settings, once per process."""
     settings = get_settings()
     return HttpSandboxClient(
         base_url=settings.sandbox_base_url,
@@ -30,6 +37,7 @@ def _sandbox_client() -> HttpSandboxClient:
 
 @lru_cache(maxsize=1)
 def _llm_client() -> OpenAICompatibleClient:
+    """Build the OpenAI-compatible LLM client from settings, once per process."""
     settings = get_settings()
     return OpenAICompatibleClient(
         base_url=settings.llm_base_url,
@@ -40,12 +48,15 @@ def _llm_client() -> OpenAICompatibleClient:
 
 
 def get_parser() -> LlamaParseParser:
+    """FastAPI dependency yielding the shared parser."""
     return _parser()
 
 
 def get_sandbox_client() -> HttpSandboxClient:
+    """FastAPI dependency yielding the shared sandbox client."""
     return _sandbox_client()
 
 
 def get_llm_client() -> OpenAICompatibleClient:
+    """FastAPI dependency yielding the shared LLM client."""
     return _llm_client()

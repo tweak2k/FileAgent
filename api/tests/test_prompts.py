@@ -1,3 +1,5 @@
+"""Tests for prompt building, especially observation truncation."""
+
 from __future__ import annotations
 
 from app.core.agent.prompts import OBSERVATION_MAX_CHARS, build_observation
@@ -11,8 +13,8 @@ def test_build_observation_khong_cat_khi_ngan():
 
 
 def test_build_observation_cat_bot_stdout_qua_dai():
-    """Nếu agent lỡ print() cả tài liệu dài, stdout phải bị cắt — nếu không,
-    toàn bộ nội dung sẽ vào prompt lượt sau và có thể khiến provider trả 400."""
+    """A long print() must be truncated, or the whole document lands in the next
+    prompt and the provider is likely to answer 400."""
     stdout = "x" * (OBSERVATION_MAX_CHARS + 5000)
 
     result = build_observation(stdout, "", timed_out=False)

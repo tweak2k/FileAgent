@@ -1,3 +1,5 @@
+"""Tests for the CodeAct loop: code extraction, observations, and the step limit."""
+
 from __future__ import annotations
 
 from app.core.agent.codeact import CodeActAgent, extract_code

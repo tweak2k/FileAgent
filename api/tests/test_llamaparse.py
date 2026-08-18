@@ -1,3 +1,5 @@
+"""Tests for the LlamaParse REST parser, driven by httpx.MockTransport."""
+
 from __future__ import annotations
 
 import httpx

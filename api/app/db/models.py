@@ -1,4 +1,4 @@
-"""Định nghĩa các bảng ORM: documents, document_artifacts, conversations, messages, agent_steps."""
+"""ORM tables: documents, document_artifacts, conversations, messages, agent_steps."""
 
 from __future__ import annotations
 
@@ -11,7 +11,12 @@ from app.db.base import Base
 
 
 class Document(Base):
-    """Một file người dùng upload, cùng trạng thái bóc tách sang markdown."""
+    """An uploaded file and the state of its conversion to markdown.
+
+    parse_status moves pending -> parsing -> ready | failed. Nothing outside
+    `parse_document` writes it, and every parse run must end at ready or
+    failed — see api/app/core/parsing/pipeline.py.
+    """
 
     __tablename__ = "documents"
 
@@ -30,7 +35,11 @@ class Document(Base):
 
 
 class DocumentArtifact(Base):
-    """Kết quả bóc tách của một document (markdown, hình ảnh, v.v.)."""
+    """Parser output for a document, keyed by `kind` (currently only "markdown").
+
+    Kept in its own table so later artifact kinds — an outline, a chunk index —
+    can be added without a schema change.
+    """
 
     __tablename__ = "document_artifacts"
 
@@ -46,7 +55,12 @@ class DocumentArtifact(Base):
 
 
 class Conversation(Base):
-    """Một phiên hỏi đáp nhiều lượt gắn với một document, có thể giữ session sandbox."""
+    """A multi-turn Q&A session about one document, optionally holding a sandbox session.
+
+    `sandbox_session_id` is a cache, not the source of truth: if python-vm has
+    reaped the session, SessionResolver creates a new one and re-uploads the
+    markdown transparently.
+    """
 
     __tablename__ = "conversations"
 
@@ -68,7 +82,12 @@ class Conversation(Base):
 
 
 class Message(Base):
-    """Một lượt hội thoại (người dùng hoặc trợ lý) trong một conversation."""
+    """One conversation turn, from either the user or the assistant.
+
+    Ordered by (created_at, id): Postgres now() is the transaction timestamp,
+    so messages written in the same transaction share created_at and only the
+    id breaks the tie.
+    """
 
     __tablename__ = "messages"
 
@@ -87,7 +106,11 @@ class Message(Base):
 
 
 class AgentStep(Base):
-    """Một bước chạy code (CodeAct) sinh ra khi trợ lý trả lời một message."""
+    """One CodeAct code-execution step recorded while answering a message.
+
+    This is what makes a demo convincing: it shows the code the agent actually
+    ran, together with its stdout and stderr.
+    """
 
     __tablename__ = "agent_steps"
 

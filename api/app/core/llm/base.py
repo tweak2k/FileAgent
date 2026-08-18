@@ -1,4 +1,4 @@
-"""Protocol chung cho mọi LLM client, để agent không phụ thuộc vào provider cụ thể."""
+"""Shared protocol for every LLM client, so the agent stays provider-agnostic."""
 
 from __future__ import annotations
 
@@ -6,6 +6,6 @@ from typing import Protocol
 
 
 class LLMClient(Protocol):
-    """Giao diện tối thiểu mà agent cần: gửi messages, nhận về nội dung trả lời."""
+    """The minimum the agent needs: send messages, get the reply text back."""
 
     def complete(self, messages: list[dict[str, str]]) -> str: ...

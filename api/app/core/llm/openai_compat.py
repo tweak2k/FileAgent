@@ -1,4 +1,8 @@
-"""Adapter cho mọi endpoint tương thích OpenAI (OpenRouter, Cerebras, Groq, vLLM...)."""
+"""Adapter for any OpenAI-compatible endpoint (OpenRouter, Cerebras, Groq, vLLM...).
+
+User-facing error text stays in Vietnamese: it surfaces through the API and
+the UI to Vietnamese-speaking users. Comments and docstrings are English.
+"""
 
 from __future__ import annotations
 
@@ -10,11 +14,15 @@ MAX_ATTEMPTS = 3
 
 
 class LLMError(Exception):
-    """Gọi LLM thất bại sau khi đã retry."""
+    """The LLM call failed even after retrying."""
 
 
 class OpenAICompatibleClient:
-    """Adapter cho mọi endpoint OpenAI-compatible: OpenRouter, Cerebras, Groq, vLLM..."""
+    """Adapter for any OpenAI-compatible endpoint: OpenRouter, Cerebras, Groq, vLLM...
+
+    Switching provider is a matter of changing LLM_BASE_URL, LLM_MODEL and
+    LLM_API_KEY — no agent code is involved.
+    """
 
     def __init__(
         self,
@@ -31,7 +39,11 @@ class OpenAICompatibleClient:
         self._backoff_seconds = backoff_seconds
 
     def complete(self, messages: list[dict[str, str]]) -> str:
-        """Gọi chat completion, retry khi lỗi mạng/5xx, ném LLMError nếu vẫn thất bại."""
+        """Call chat completion, retrying on network/5xx errors, then raise LLMError.
+
+        Three attempts in total, with exponential backoff between them. The
+        original error is chained onto LLMError so the cause is not lost.
+        """
         last_error: Exception | None = None
         for attempt in range(MAX_ATTEMPTS):
             try:
@@ -41,7 +53,7 @@ class OpenAICompatibleClient:
                     max_tokens=self._max_tokens,
                 )
                 return completion.choices[0].message.content or ""
-            except Exception as exc:  # provider nào cũng ném kiểu riêng, không có lớp cha chung
+            except Exception as exc:  # every provider raises its own type; no common base class
                 last_error = exc
                 if attempt < MAX_ATTEMPTS - 1:
                     time.sleep(self._backoff_seconds * (2**attempt))

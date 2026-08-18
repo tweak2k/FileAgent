@@ -1,3 +1,5 @@
+"""Tests for SessionResolver: session reuse, one-shot recreation, and reset."""
+
 from __future__ import annotations
 
 import pytest

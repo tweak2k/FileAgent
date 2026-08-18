@@ -1,3 +1,5 @@
+"""Tests for Settings: reading from the environment, and the built-in defaults."""
+
 from pathlib import Path
 
 from app.config import Settings
@@ -24,13 +26,12 @@ def test_settings_doc_gia_tri_tu_moi_truong(monkeypatch):
 def test_settings_co_gia_tri_mac_dinh_cho_agent_va_sandbox(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://u:p@h:5432/db")
 
-    # _env_file=None: test này kiểm tra GIÁ TRỊ MẶC ĐỊNH của Settings, không
-    # phải giá trị trong .env của người phát triển đang chạy máy này. Nếu
-    # không tắt, độ ưu tiên của pydantic-settings (init > env var > dotenv >
-    # default) khiến .env ở cwd ghi đè trước khi default kịp có tác dụng —
-    # README bảo người dùng cp .env.example .env rồi tự chỉnh (vd.
-    # AGENT_MAX_STEPS=4 để tiết kiệm token) là việc bình thường, không nên
-    # làm đỏ test này.
+    # _env_file=None: this test checks Settings' DEFAULTS, not whatever sits
+    # in the developer's local .env. Without it, pydantic-settings precedence
+    # (init > env var > dotenv > default) lets a .env in the cwd win before the
+    # defaults apply — and the README tells people to copy .env.example and
+    # edit it (say AGENT_MAX_STEPS=4 to save tokens), which must not turn this
+    # test red.
     settings = Settings(_env_file=None)
 
     assert settings.agent_max_steps == 8

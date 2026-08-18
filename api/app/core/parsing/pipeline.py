@@ -1,4 +1,4 @@
-"""Job nền chuyển file đã upload sang markdown và ghi artifact."""
+"""Background job converting an uploaded file to markdown, plus artifact readback."""
 
 from __future__ import annotations
 
@@ -14,15 +14,17 @@ def parse_document(
     parser: Parser,
     artifacts_dir: Path,
 ) -> None:
-    """Job nền: chuyển file sang markdown rồi ghi artifact.
+    """Background job: convert the file to markdown and record the artifact.
 
-    Mở session DB riêng vì chạy sau khi request đã trả về (BackgroundTasks).
-    Toàn bộ phần thân sau khi đặt parse_status="parsing" — gọi parser, ghi
-    file markdown, ghi bản ghi DocumentArtifact — đều nằm trong một
-    try/except chung: bất kỳ lỗi nào (parser lỗi, hết đĩa, không có quyền
-    ghi, lỗi DB...) đều phải kết thúc ở parse_status="failed", vì không có
-    ai bắt exception của job nền cả — để lọt ra ngoài thì document sẽ kẹt
-    vĩnh viễn ở trạng thái "parsing".
+    Opens its own DB session because it runs after the request has already
+    returned (FastAPI BackgroundTasks).
+
+    Everything after parse_status is set to "parsing" — the parser call, the
+    markdown write, the DocumentArtifact insert — sits inside one try/except.
+    Any failure (parser error, disk full, permission denied, DB error) must
+    end at parse_status="failed", because nothing catches an exception raised
+    by a background job: letting one escape would leave the document stuck at
+    "parsing" forever.
     """
     with session_factory() as db:
         document = db.get(Document, document_id)
@@ -51,9 +53,9 @@ def parse_document(
             document.parse_error = None
             db.commit()
         except Exception as exc:
-            # Session có thể đang ở trạng thái lỗi nếu chính db.commit() ở
-            # trên vừa thất bại (vd. lỗi ràng buộc DB) — phải rollback
-            # trước khi commit lại, nếu không sẽ dính PendingRollbackError.
+            # The session may already be in a failed state if the db.commit()
+            # above is what raised (e.g. a constraint violation), so roll back
+            # before committing again — otherwise this hits PendingRollbackError.
             db.rollback()
             document.parse_status = "failed"
             document.parse_error = str(exc)[:2000]
@@ -61,9 +63,10 @@ def parse_document(
 
 
 def read_markdown(document: Document) -> str:
-    """Đọc nội dung markdown artifact mới nhất của document.
+    """Read the document's most recent markdown artifact.
 
-    Ném ValueError nếu document chưa có artifact markdown nào.
+    Raises ValueError when the document has no markdown artifact yet — the
+    chat layer maps that onto HTTP 409.
     """
     artifacts = [a for a in document.artifacts if a.kind == "markdown"]
     if not artifacts:

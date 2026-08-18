@@ -1,4 +1,7 @@
-"""Route quản lý tài liệu: upload, liệt kê, xem trạng thái parse."""
+"""Document routes: upload, list, and check parse status.
+
+User-facing error text stays in Vietnamese; comments and docstrings are English.
+"""
 
 from __future__ import annotations
 
@@ -21,6 +24,7 @@ router = APIRouter(prefix="/documents", tags=["documents"])
 
 
 def _to_out(document: Document) -> DocumentOut:
+    """Map a Document row onto the API schema, folding in the markdown char count."""
     markdown = [a for a in document.artifacts if a.kind == "markdown"]
     return DocumentOut(
         id=document.id,
@@ -39,15 +43,17 @@ def upload_document(
     db: Session = Depends(get_db),
     parser: Parser = Depends(get_parser),
 ) -> DocumentOut:
-    """Lưu file xuống đĩa, tạo bản ghi document rồi đẩy job parse chạy nền.
+    """Store the file, create the document row, and queue the parse job.
 
-    Trả về document_id ngay, không chờ parser (LlamaParse có thể mất vài phút).
+    Returns the document id immediately rather than waiting for the parser:
+    LlamaParse can take minutes on a large document. The UI polls
+    GET /documents/{id} until parse_status leaves "pending"/"parsing".
     """
     settings = get_settings()
 
-    # Chuẩn hoá filename bằng Path(...).name để chỉ lấy phần tên file cuối
-    # cùng, chống path traversal (vd. "../../evil.pdf") khi ghép đường dẫn
-    # ghi xuống đĩa. Lưu luôn tên đã chuẩn hoá vào DB để nhất quán với đĩa.
+    # Normalise the filename down to its last component with Path(...).name,
+    # so a name like "../../evil.pdf" cannot escape the upload directory. The
+    # normalised name is stored in the DB too, keeping disk and database consistent.
     safe_filename = Path(file.filename or "unnamed").name or "unnamed"
 
     document = Document(
@@ -80,12 +86,14 @@ def upload_document(
 
 @router.get("", response_model=list[DocumentOut])
 def list_documents(db: Session = Depends(get_db)) -> list[DocumentOut]:
+    """List every document, newest first, whatever its parse status."""
     documents = db.scalars(select(Document).order_by(Document.id.desc())).all()
     return [_to_out(d) for d in documents]
 
 
 @router.get("/{document_id}", response_model=DocumentOut)
 def get_document(document_id: int, db: Session = Depends(get_db)) -> DocumentOut:
+    """Return one document; this is the endpoint the UI polls while parsing."""
     document = db.get(Document, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài liệu")
