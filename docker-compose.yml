@@ -10,6 +10,7 @@ services:
       - "5433:5432"
     volumes:
       - fu_pgdata:/var/lib/postgresql/data
+      - ./postgres/initdb:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U app -d file_understanding"]
       interval: 5s

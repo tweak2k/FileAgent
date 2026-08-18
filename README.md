@@ -38,6 +38,16 @@ dọn do idle, hệ thống tự tạo lại và upload lại markdown.
 /Users/macpro24/miniconda3/envs/minhln/bin/python -m pytest -m "not integration"
 ```
 
+Test dùng database riêng `file_understanding_test` (xem `api/tests/conftest.py`),
+được tạo tự động bởi `postgres/initdb/01-create-test-db.sql` trong LẦN ĐẦU
+`docker compose up` (script trong `docker-entrypoint-initdb.d/` chỉ chạy khi
+volume `fu_pgdata` còn trống). Nếu volume đã có dữ liệu từ trước khi thêm
+script này, tạo tay một lần:
+
+```bash
+docker exec fu-postgres psql -U app -d file_understanding -c 'CREATE DATABASE file_understanding_test;'
+```
+
 Smoke test cần compose và `python-vm` đang chạy:
 
 ```bash
