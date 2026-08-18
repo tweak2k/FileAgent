@@ -66,6 +66,19 @@ def _build_service(db: Session, llm: LLMClient, sandbox: SandboxClient) -> ChatS
     return ChatService(db=db, llm=llm, sandbox=sandbox, max_steps=get_settings().agent_max_steps)
 
 
+def _raise_for_service_error(exc: Exception) -> None:
+    """Ánh xạ lỗi từ ChatService sang HTTPException — dùng chung cho mọi route gọi service."""
+    if isinstance(exc, SandboxCapacityError):
+        raise HTTPException(status_code=503, detail=f"Sandbox quá tải: {exc}") from exc
+    if isinstance(exc, SandboxError):
+        raise HTTPException(status_code=503, detail=f"Sandbox không dùng được: {exc}") from exc
+    if isinstance(exc, LLMError):
+        raise HTTPException(status_code=502, detail=f"Lỗi gọi LLM: {exc}") from exc
+    if isinstance(exc, ValueError):
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    raise exc
+
+
 @router.post("", status_code=201, response_model=ConversationOut)
 def create_conversation(
     payload: ConversationCreate, db: Session = Depends(get_db)
@@ -117,14 +130,8 @@ def post_message(
 
     try:
         message = service.answer(conversation, payload.content)
-    except SandboxCapacityError as exc:
-        raise HTTPException(status_code=503, detail=f"Sandbox quá tải: {exc}") from exc
-    except SandboxError as exc:
-        raise HTTPException(status_code=503, detail=f"Sandbox không dùng được: {exc}") from exc
-    except LLMError as exc:
-        raise HTTPException(status_code=502, detail=f"Lỗi gọi LLM: {exc}") from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (SandboxError, LLMError, ValueError) as exc:
+        _raise_for_service_error(exc)
 
     return _message_out(message)
 
@@ -137,7 +144,10 @@ def reset_sandbox(
     sandbox: SandboxClient = Depends(get_sandbox_client),
 ) -> Response:
     conversation = _get_conversation(conversation_id, db)
-    _build_service(db, llm, sandbox).reset_sandbox(conversation)
+    try:
+        _build_service(db, llm, sandbox).reset_sandbox(conversation)
+    except (SandboxError, LLMError, ValueError) as exc:
+        _raise_for_service_error(exc)
     return Response(status_code=204)
 
 
@@ -149,7 +159,15 @@ def delete_conversation(
     sandbox: SandboxClient = Depends(get_sandbox_client),
 ) -> Response:
     conversation = _get_conversation(conversation_id, db)
-    _build_service(db, llm, sandbox).reset_sandbox(conversation)
+    try:
+        _build_service(db, llm, sandbox).reset_sandbox(conversation)
+    except SandboxError:
+        # Đóng session sandbox thất bại KHÔNG được chặn việc xoá hội thoại.
+        # Session sandbox chỉ là cache (xem docstring của SessionResolver) —
+        # nếu đóng lỗi, session mồ côi sẽ được reaper của python-vm tự dọn.
+        # Nguồn sự thật là Postgres, và ở đây ta đang xoá đúng bản ghi đó nên
+        # không có gì cần rollback.
+        pass
     db.delete(conversation)
     db.commit()
     return Response(status_code=204)

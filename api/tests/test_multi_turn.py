@@ -76,6 +76,11 @@ def test_luot_hai_nhan_du_lich_su_luot_mot_dung_thu_tu(client_and_doc):
     assert contents.index("Gói thầu số mấy?") < contents.index("Gói thầu số 33.")
     assert contents.index("Gói thầu số 33.") < contents.index("Còn giá thì sao?")
     assert messages[-1]["content"] == "Còn giá thì sao?"
+    # list.index() chỉ tìm vị trí xuất hiện ĐẦU TIÊN — nếu build_history bị gọi
+    # SAU khi lưu message người dùng, câu hỏi hiện tại sẽ lặp lại hai lần
+    # trong prompt nhưng các assert index() ở trên vẫn xanh. Khoá thêm bằng
+    # count() để bắt đúng lỗi trùng lặp này.
+    assert contents.count("Còn giá thì sao?") == 1
 
 
 def test_lich_su_khong_chua_lai_cac_buoc_code_cua_luot_truoc(client_and_doc):

@@ -50,12 +50,22 @@ class ChatService:
             head="\n".join(markdown.splitlines()[:DOCUMENT_HEAD_LINES]),
         )
 
-        result = self._agent.run(
-            question=question,
-            document_context=document_context,
-            history=history,
-            executor=lambda code: self._resolver.run_code(conversation, markdown, code),
-        )
+        try:
+            result = self._agent.run(
+                question=question,
+                document_context=document_context,
+                history=history,
+                executor=lambda code: self._resolver.run_code(conversation, markdown, code),
+            )
+        finally:
+            # Nếu sandbox session vừa được tạo (SessionResolver._create chỉ
+            # flush, không commit) rồi một bước SAU đó ném lỗi (LLM hết retry,
+            # sandbox mất kết nối ở lần execute kế tiếp...), sandbox_session_id
+            # phải được commit ở đây trước khi exception bay lên. Nếu không,
+            # get_db() sẽ rollback khi request kết thúc, Postgres quên mất
+            # session vừa tạo trong khi session thật vẫn còn sống trên
+            # python-vm — mồ côi cho tới khi reaper dọn, tốn một slot.
+            self._db.commit()
 
         assistant_message = Message(
             conversation_id=conversation.id, role="assistant", content=result.answer

@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.llm.openai_compat import LLMError
+from app.core.sandbox.exceptions import SandboxUnavailable
 from app.db.models import Conversation, Document, DocumentArtifact
 from app.db.session import get_db
 from app.dependencies import get_llm_client, get_sandbox_client
@@ -130,3 +132,68 @@ def test_xoa_conversation_dong_session(client, document):
 
     assert response.status_code == 204
     assert client.fake_sandbox.closed_sessions == ["sess_1"]
+
+
+def test_session_sandbox_khong_bi_mo_coi_khi_llm_loi_giua_luot(client, document, db_session):
+    """Session vừa tạo phải được commit ngay, kể cả khi bước sau đó của agent lỗi.
+
+    SessionResolver._create chỉ flush(), không commit(). Nếu LLM ném lỗi ở
+    bước 2 (sau khi session đã được tạo ở bước 1) và ChatService không tự
+    commit trước khi để exception bay lên, get_db() sẽ rollback toàn bộ khi
+    request kết thúc: Postgres quên mất session vừa tạo trong khi session
+    thật vẫn còn sống trên python-vm — mồ côi, tốn slot cho tới khi reaper
+    dọn.
+    """
+    conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
+
+    class FlakyLLM:
+        """LLM giả: bước 1 trả code (khiến sandbox session được tạo), bước 2 ném LLMError."""
+
+        def __init__(self) -> None:
+            self._step = 0
+
+        def complete(self, messages: list[dict[str, str]]) -> str:
+            self._step += 1
+            if self._step == 1:
+                return "```python\nprint(1)\n```"
+            raise LLMError("hết retry")
+
+    client.app.dependency_overrides[get_llm_client] = lambda: FlakyLLM()
+
+    response = client.post(f"/conversations/{conv_id}/messages", json={"content": "Hỏi"})
+
+    assert response.status_code == 502
+    conversation = db_session.get(Conversation, conv_id)
+    assert conversation.sandbox_session_id == "sess_1"
+    assert len(client.fake_sandbox.created_sessions) == 1
+
+
+def test_reset_sandbox_khi_sandbox_loi_tra_503(client, document):
+    conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
+    client.fake_llm.responses = ["```python\nprint(1)\n```", "xong"]
+    client.post(f"/conversations/{conv_id}/messages", json={"content": "q"})
+
+    def _boom(session_id: str) -> None:
+        raise SandboxUnavailable("mất kết nối")
+
+    client.fake_sandbox.close_session = _boom
+
+    response = client.post(f"/conversations/{conv_id}/reset-sandbox")
+
+    assert response.status_code == 503
+
+
+def test_xoa_conversation_van_thanh_cong_khi_dong_session_loi(client, document, db_session):
+    conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
+    client.fake_llm.responses = ["```python\nprint(1)\n```", "xong"]
+    client.post(f"/conversations/{conv_id}/messages", json={"content": "q"})
+
+    def _boom(session_id: str) -> None:
+        raise SandboxUnavailable("mất kết nối")
+
+    client.fake_sandbox.close_session = _boom
+
+    response = client.delete(f"/conversations/{conv_id}")
+
+    assert response.status_code == 204
+    assert db_session.get(Conversation, conv_id) is None
