@@ -22,8 +22,3 @@ class ExecutionResult:
     stderr: str
     timed_out: bool
     duration_ms: int
-
-    @property
-    def failed(self) -> bool:
-        """True nếu lần thực thi không kết thúc ở trạng thái completed."""
-        return self.status != "completed"

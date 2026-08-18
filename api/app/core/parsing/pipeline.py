@@ -36,7 +36,7 @@ def parse_document(
 
             artifacts_dir.mkdir(parents=True, exist_ok=True)
             target = artifacts_dir / f"{document_id}.md"
-            target.write_text(result.markdown)
+            target.write_text(result.markdown, encoding="utf-8")
 
             db.add(
                 DocumentArtifact(
@@ -69,4 +69,4 @@ def read_markdown(document: Document) -> str:
     if not artifacts:
         raise ValueError(f"Tài liệu {document.id} chưa có artifact markdown")
     latest = max(artifacts, key=lambda a: a.id)
-    return Path(latest.content_path).read_text()
+    return Path(latest.content_path).read_text(encoding="utf-8")
