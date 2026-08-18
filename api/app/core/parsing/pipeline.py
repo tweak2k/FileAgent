@@ -17,8 +17,12 @@ def parse_document(
     """Job nền: chuyển file sang markdown rồi ghi artifact.
 
     Mở session DB riêng vì chạy sau khi request đã trả về (BackgroundTasks).
-    Mọi exception từ parser đều bị bắt và ghi vào parse_status/parse_error
-    thay vì để bay lên, vì không có ai bắt exception của job nền cả.
+    Toàn bộ phần thân sau khi đặt parse_status="parsing" — gọi parser, ghi
+    file markdown, ghi bản ghi DocumentArtifact — đều nằm trong một
+    try/except chung: bất kỳ lỗi nào (parser lỗi, hết đĩa, không có quyền
+    ghi, lỗi DB...) đều phải kết thúc ở parse_status="failed", vì không có
+    ai bắt exception của job nền cả — để lọt ra ngoài thì document sẽ kẹt
+    vĩnh viễn ở trạng thái "parsing".
     """
     with session_factory() as db:
         document = db.get(Document, document_id)
@@ -29,28 +33,31 @@ def parse_document(
 
         try:
             result = parser.to_markdown(Path(document.source_path), document.mime_type)
+
+            artifacts_dir.mkdir(parents=True, exist_ok=True)
+            target = artifacts_dir / f"{document_id}.md"
+            target.write_text(result.markdown)
+
+            db.add(
+                DocumentArtifact(
+                    document_id=document.id,
+                    kind="markdown",
+                    content_path=str(target),
+                    char_count=len(result.markdown),
+                    parser_name=result.parser_name,
+                )
+            )
+            document.parse_status = "ready"
+            document.parse_error = None
+            db.commit()
         except Exception as exc:
+            # Session có thể đang ở trạng thái lỗi nếu chính db.commit() ở
+            # trên vừa thất bại (vd. lỗi ràng buộc DB) — phải rollback
+            # trước khi commit lại, nếu không sẽ dính PendingRollbackError.
+            db.rollback()
             document.parse_status = "failed"
             document.parse_error = str(exc)[:2000]
             db.commit()
-            return
-
-        artifacts_dir.mkdir(parents=True, exist_ok=True)
-        target = artifacts_dir / f"{document_id}.md"
-        target.write_text(result.markdown)
-
-        db.add(
-            DocumentArtifact(
-                document_id=document.id,
-                kind="markdown",
-                content_path=str(target),
-                char_count=len(result.markdown),
-                parser_name=result.parser_name,
-            )
-        )
-        document.parse_status = "ready"
-        document.parse_error = None
-        db.commit()
 
 
 def read_markdown(document: Document) -> str:

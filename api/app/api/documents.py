@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
@@ -44,8 +45,13 @@ def upload_document(
     """
     settings = get_settings()
 
+    # Chuẩn hoá filename bằng Path(...).name để chỉ lấy phần tên file cuối
+    # cùng, chống path traversal (vd. "../../evil.pdf") khi ghép đường dẫn
+    # ghi xuống đĩa. Lưu luôn tên đã chuẩn hoá vào DB để nhất quán với đĩa.
+    safe_filename = Path(file.filename or "unnamed").name or "unnamed"
+
     document = Document(
-        filename=file.filename or "unnamed",
+        filename=safe_filename,
         mime_type=file.content_type or "application/octet-stream",
         source_path="",
     )

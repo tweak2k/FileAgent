@@ -112,3 +112,42 @@ def test_list_documents_tra_ve_danh_sach(client):
 
     assert response.status_code == 200
     assert {d["filename"] for d in response.json()} == {"a.pdf", "b.pdf"}
+
+
+def test_loi_ghi_markdown_khien_document_chuyen_sang_failed_khong_ket_o_parsing(
+    client, db_session, tmp_path
+):
+    # artifacts_dir bị chiếm bởi một file thường (không phải thư mục) nên
+    # artifacts_dir.mkdir(parents=True, exist_ok=True) sẽ ném FileExistsError
+    # ngay sau khi parser đã chạy thành công — mô phỏng lỗi I/O khi ghi markdown.
+    (tmp_path / "artifacts").write_text("khong phai thu muc")
+
+    response = client.post(
+        "/documents", files={"file": ("a.pdf", b"x", "application/pdf")}
+    )
+    doc_id = response.json()["id"]
+
+    doc = db_session.get(Document, doc_id)
+    db_session.refresh(doc)
+    assert doc.parse_status == "failed"
+    assert doc.parse_error
+
+
+def test_upload_voi_ten_file_path_traversal_khong_ghi_ra_ngoai_thu_muc_upload(
+    client, db_session, tmp_path
+):
+    response = client.post(
+        "/documents",
+        files={"file": ("../../evil.pdf", b"noi dung doc hai", "application/pdf")},
+    )
+
+    assert response.status_code == 201
+    doc_id = response.json()["id"]
+
+    doc = db_session.get(Document, doc_id)
+    db_session.refresh(doc)
+
+    uploads_dir = (tmp_path / "uploads").resolve()
+    saved_path = Path(doc.source_path).resolve()
+    assert saved_path.is_relative_to(uploads_dir)
+    assert not (tmp_path / "evil.pdf").exists()
