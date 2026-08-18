@@ -74,11 +74,17 @@ class CodeActAgent:
         document_context: str,
         history: list[dict[str, str]],
         executor: Callable[[str], ExecutionResult],
+        steps_sink: list[AgentStepRecord] | None = None,
     ) -> AgentRunResult:
         """Chạy vòng lặp cho tới khi LLM trả lời không kèm code, hoặc chạm max_steps.
 
         Thứ tự message: system prompt -> document context -> lịch sử hội thoại
         -> câu hỏi hiện tại (luôn là message cuối cùng khi gọi LLM lần đầu).
+
+        `steps_sink`, nếu truyền vào, là list do caller sở hữu và sẽ được nối
+        thêm ngay khi mỗi bước hoàn tất — không đợi `run()` trả về. Nhờ vậy,
+        nếu LLM hoặc executor ném lỗi giữa vòng lặp, caller vẫn đọc được các
+        bước đã thực sự chạy xong trước đó (xem ChatService.answer).
         """
         messages: list[dict[str, str]] = [
             {"role": "system", "content": build_system_prompt()},
@@ -87,7 +93,7 @@ class CodeActAgent:
             {"role": "user", "content": question},
         ]
 
-        steps: list[AgentStepRecord] = []
+        steps: list[AgentStepRecord] = steps_sink if steps_sink is not None else []
         last_text = ""
 
         for step_index in range(self._max_steps):

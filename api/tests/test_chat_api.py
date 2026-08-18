@@ -102,6 +102,9 @@ def test_lich_su_message_duoc_luu_dung_thu_tu(client, document):
 
 
 def test_cau_hoi_van_duoc_luu_khi_agent_loi(client, document):
+    """Câu hỏi không mất khi agent lỗi, và cũng không bị mồ côi: một assistant
+    message báo lỗi phải được ghi kèm, nếu không lượt sau build_history() sẽ
+    luôn thấy hai user liên tiếp trong prompt (không có API xoá message)."""
     conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
     client.fake_llm.responses = []  # FakeLLMClient sẽ ném AssertionError
 
@@ -109,7 +112,8 @@ def test_cau_hoi_van_duoc_luu_khi_agent_loi(client, document):
         client.post(f"/conversations/{conv_id}/messages", json={"content": "Hỏi lỗi"})
 
     messages = client.get(f"/conversations/{conv_id}/messages").json()
-    assert [m["content"] for m in messages] == ["Hỏi lỗi"]
+    assert [m["role"] for m in messages] == ["user", "assistant"]
+    assert messages[0]["content"] == "Hỏi lỗi"
 
 
 def test_reset_sandbox_dong_session(client, document):
@@ -166,6 +170,62 @@ def test_session_sandbox_khong_bi_mo_coi_khi_llm_loi_giua_luot(client, document,
     conversation = db_session.get(Conversation, conv_id)
     assert conversation.sandbox_session_id == "sess_1"
     assert len(client.fake_sandbox.created_sessions) == 1
+
+
+def test_agent_step_khong_mat_va_khong_con_user_mo_coi_khi_llm_loi_giua_luot(
+    client, document, db_session
+):
+    """Hai bước code đã chạy thành công không được biến mất khi bước 3 LLM lỗi.
+
+    Nếu ChatService không bắt exception của agent.run và ghi lại các AgentStep
+    đã thu được cộng một assistant message báo lỗi, thì (a) hai bước code đã
+    thực thi trong sandbox sẽ không có bản ghi nào trong DB, và (b)
+    conversation sẽ còn lại một message user không có assistant đi kèm —
+    lượt kế tiếp build_history() trả về hai user liên tiếp trong prompt, mãi
+    mãi (không có API xoá message).
+    """
+    conv_id = client.post("/conversations", json={"document_id": document.id}).json()["id"]
+
+    class FlakyLLM:
+        """LLM giả: 2 bước đầu trả code chạy được, bước 3 ném LLMError."""
+
+        def __init__(self) -> None:
+            self._step = 0
+
+        def complete(self, messages: list[dict[str, str]]) -> str:
+            self._step += 1
+            if self._step <= 2:
+                return f"```python\nprint({self._step})\n```"
+            raise LLMError("hết retry")
+
+    client.app.dependency_overrides[get_llm_client] = lambda: FlakyLLM()
+
+    response = client.post(
+        f"/conversations/{conv_id}/messages", json={"content": "Hỏi lỗi giữa lượt"}
+    )
+    assert response.status_code == 502
+
+    conversation = db_session.get(Conversation, conv_id)
+    db_session.refresh(conversation)
+    messages = conversation.messages
+    assert [m.role for m in messages] == ["user", "assistant"]
+
+    error_message = messages[-1]
+    steps = error_message.steps
+    assert len(steps) == 2
+    assert [s.step_index for s in steps] == [0, 1]
+
+    # Lượt kế tiếp: build_history() không được trả về hai user liên tiếp.
+    client.app.dependency_overrides[get_llm_client] = lambda: client.fake_llm
+    client.fake_llm.responses = ["Trả lời lượt hai."]
+    response2 = client.post(
+        f"/conversations/{conv_id}/messages", json={"content": "Hỏi lượt hai"}
+    )
+    assert response2.status_code == 200
+
+    roles = [m["role"] for m in client.fake_llm.calls[-1]]
+    for role_a, role_b in zip(roles, roles[1:]):
+        assert not (role_a == "user" and role_b == "user")
 
 
 def test_reset_sandbox_khi_sandbox_loi_tra_503(client, document):
