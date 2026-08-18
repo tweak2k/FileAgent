@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: fu-postgres
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: file_understanding
+    ports:
+      - "5433:5432"
+    volumes:
+      - fu_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d file_understanding"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  fu_pgdata:
