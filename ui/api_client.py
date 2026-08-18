@@ -10,7 +10,16 @@ import httpx
 
 
 class ApiError(Exception):
-    """API trả về lỗi hoặc không gọi được."""
+    """API trả về lỗi hoặc không gọi được.
+
+    `status_code` là mã HTTP trả về (None nếu lỗi xảy ra trước khi có phản
+    hồi, vd. không kết nối được tới API) — để nơi gọi phân biệt được, ví dụ
+    503 (sandbox không dùng được) cần gợi ý khác với các lỗi khác.
+    """
+
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class ApiClient:
@@ -67,7 +76,7 @@ class ApiClient:
                 detail = response.json().get("detail", detail)
             except ValueError:
                 pass
-            raise ApiError(str(detail))
+            raise ApiError(str(detail), status_code=response.status_code)
 
         if not response.content:
             return None

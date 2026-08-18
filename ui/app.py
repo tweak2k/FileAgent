@@ -22,8 +22,29 @@ def get_client() -> ApiClient:
 
 
 def render_sidebar(client: ApiClient) -> int | None:
+    """Vẽ sidebar (upload, chọn tài liệu, chọn/tạo hội thoại).
+
+    Bọc toàn bộ thân trong try/except ApiError: mọi lời gọi API ở đây (trừ
+    send_message ở main) trước kia không được bọc, nên nếu backend trả lỗi
+    (vd. 503 khi python-vm chết) thì ApiError ném ra sẽ khiến Streamlit vẽ
+    traceback thay vì trang. Trả None khi có lỗi để main() hiện màn hình
+    "chưa sẵn sàng" thay vì crash.
+    """
     st.sidebar.title("Tài liệu")
 
+    try:
+        return _render_sidebar_body(client)
+    except ApiError as exc:
+        if exc.status_code == 503:
+            st.sidebar.error(
+                f"{exc}\n\nKiểm tra xem sandbox (python-vm) đã chạy ở cổng 8081 chưa."
+            )
+        else:
+            st.sidebar.error(f"Lỗi gọi API: {exc}")
+        return None
+
+
+def _render_sidebar_body(client: ApiClient) -> int | None:
     uploaded = st.sidebar.file_uploader("Tải tài liệu lên", type=None)
     if uploaded is not None and st.sidebar.button("Bắt đầu bóc tách"):
         document = client.upload_document(
@@ -34,23 +55,50 @@ def render_sidebar(client: ApiClient) -> int | None:
 
     pending_id = st.session_state.get("pending_document_id")
     if pending_id:
-        document = client.get_document(pending_id)
+        try:
+            document = client.get_document(pending_id)
+        except ApiError:
+            # Lời gọi ném lỗi thì vẫn phải pop, nếu không mọi lần rerun sau
+            # đều chết ở đúng chỗ này — UI kẹt cứng vĩnh viễn.
+            st.session_state.pop("pending_document_id", None)
+            raise
+
         if document["parse_status"] in {"pending", "parsing"}:
             st.sidebar.info(f"Đang bóc tách `{document['filename']}`...")
             time.sleep(POLL_INTERVAL_SECONDS)
             st.rerun()
         else:
-            st.session_state.pop("pending_document_id")
+            st.session_state.pop("pending_document_id", None)
             if document["parse_status"] == "failed":
                 st.sidebar.error(f"Bóc tách thất bại: {document['parse_error']}")
-            st.rerun()
+            # Không st.rerun() ở đây — nếu rerun, script chạy lại từ đầu
+            # với pending_document_id đã bị pop, và lỗi vừa vẽ ở trên biến
+            # mất trước khi người dùng kịp thấy. Để script chạy tiếp xuống
+            # phần danh sách tài liệu bên dưới.
 
-    documents = [d for d in client.list_documents() if d["parse_status"] == "ready"]
+    documents = client.list_documents()
     if not documents:
+        st.sidebar.warning("Chưa có tài liệu nào.")
+        return None
+
+    st.sidebar.caption("Trạng thái các tài liệu:")
+    for d in documents:
+        status = d["parse_status"]
+        if status == "ready":
+            st.sidebar.caption(f"- {d['filename']}: sẵn sàng ({d['char_count']} ký tự)")
+        elif status == "failed":
+            st.sidebar.caption(
+                f"- {d['filename']}: bóc tách thất bại — {d.get('parse_error') or 'không rõ lỗi'}"
+            )
+        else:
+            st.sidebar.caption(f"- {d['filename']}: đang {status}")
+
+    ready_documents = [d for d in documents if d["parse_status"] == "ready"]
+    if not ready_documents:
         st.sidebar.warning("Chưa có tài liệu nào sẵn sàng.")
         return None
 
-    labels = {d["id"]: f"{d['filename']} ({d['char_count']} ký tự)" for d in documents}
+    labels = {d["id"]: f"{d['filename']} ({d['char_count']} ký tự)" for d in ready_documents}
     document_id = st.sidebar.selectbox(
         "Chọn tài liệu", options=list(labels), format_func=lambda i: labels[i]
     )
@@ -68,11 +116,18 @@ def render_sidebar(client: ApiClient) -> int | None:
         st.sidebar.caption("Chưa có hội thoại nào cho tài liệu này.")
         return None
 
+    conversation_ids = [c["id"] for c in conversations]
     conversation_labels = {c["id"]: f"#{c['id']} — {c['title']}" for c in conversations}
+    # Hội thoại vừa tạo (nếu có) được chọn sẵn thay vì luôn rơi về cái đầu tiên.
+    just_created_id = st.session_state.get("conversation_id")
+    default_index = (
+        conversation_ids.index(just_created_id) if just_created_id in conversation_ids else 0
+    )
     conversation_id = st.sidebar.selectbox(
         "Chọn hội thoại",
-        options=list(conversation_labels),
+        options=conversation_ids,
         format_func=lambda i: conversation_labels[i],
+        index=default_index,
     )
 
     if st.sidebar.button("Reset phiên phân tích"):

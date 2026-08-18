@@ -52,5 +52,18 @@ def test_loi_http_nem_api_error_kem_thong_diep():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"detail": "Sandbox không dùng được"})
 
-    with pytest.raises(ApiError, match="Sandbox không dùng được"):
+    with pytest.raises(ApiError, match="Sandbox không dùng được") as exc_info:
         build_client(handler).send_message(1, "q")
+
+    # UI cần status_code để gợi ý kiểm tra python-vm riêng cho lỗi 503.
+    assert exc_info.value.status_code == 503
+
+
+def test_loi_mang_nem_api_error_khong_co_status_code():
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    with pytest.raises(ApiError) as exc_info:
+        build_client(handler).send_message(1, "q")
+
+    assert exc_info.value.status_code is None
